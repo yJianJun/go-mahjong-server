@@ -317,6 +317,11 @@ func (manager *DeskManager) ReEnter(s *session.Session, msg *protocol.ReEnterDes
 	return d.onPlayerReJoin(s)
 }
 
+// Pause 是 DeskManager 的方法，用于将玩家设置为离线状态
+// 它接受一个会话对象和一个无用的字节参数，返回一个错误对象
+// 如果会话中找不到与之关联的玩家，则返回一个错误
+// 如果玩家在房间内，将其设置为离线状态
+// 否则，记录一条调试级别的日志，并返回 nil
 func (manager *DeskManager) Pause(s *session.Session, _ []byte) error {
 	uid := s.UID()
 	p, err := playerWithSession(s)
@@ -336,6 +341,16 @@ func (manager *DeskManager) Pause(s *session.Session, _ []byte) error {
 	return nil
 }
 
+// Resume 是 DeskManager 的方法，用于恢复玩家切换到前台的操作。
+// 它接收一个会话和一个空的字节参数，并返回一个错误。
+// 首先，它获取会话的 UID，并使用 playerWithSession 函数获取与会话关联的玩家。
+// 如果出现错误，将返回该错误。
+// 然后，它获取玩家所在的房间，并检查玩家是否已经在房间中。
+// 如果玩家不在房间中，则记录日志并返回。
+// 接下来，检查是否存在解散操作，并且玩家没有在线。
+// 如果是这样，则更新玩家的在线状态，并返回。
+// 最后，检查房间玩家人数是否达到所需人数，是否已经有人申请解散。
+// 如果是这样，向房间内的玩家广播最新的解散状态，并返回。
 func (manager *DeskManager) Resume(s *session.Session, _ []byte) error {
 	uid := s.UID()
 	p, err := playerWithSession(s)
