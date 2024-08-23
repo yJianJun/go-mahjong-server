@@ -57,6 +57,7 @@ var (
 	clubCardNotEnough    = &protocol.CreateDeskResponse{Code: 30002, Error: clubCardNotEnoughMessage}
 )
 
+// DeskManager负责管理系统中所有的牌桌
 type (
 	DeskManager struct {
 		component.Base
@@ -73,6 +74,13 @@ func NewDeskManager() *DeskManager {
 	}
 }
 
+// AfterInit 是 DeskManager 初始化后调用的方法。
+// 它向会话的生命周期对象注册一个“OnClosed”回调来处理玩家断开连接。
+// 如果会话的 UID 大于零，则调用 DeskManager 的“onPlayerDisconnect”方法，
+// 并记录错误（如果有）。
+// 此外，它还安排一个计时器每 5 分钟运行一次，这会清除被破坏的房间信息，
+// 销毁超过 24 小时不活动的房间，并转储更新的办公桌信息。
+// 最后，将在线会话数和办公桌数异步插入数据库。
 func (manager *DeskManager) AfterInit() {
 	session.Lifetime.OnClosed(func(s *session.Session) {
 		// Fixed: 玩家WIFI切换到4G网络不断开, 重连时，将UID设置为illegalSessionUid
@@ -108,6 +116,9 @@ func (manager *DeskManager) AfterInit() {
 	})
 }
 
+// dumpDeskInfo 打印剩余房间数量和在线人数，以及每个房间的详细信息。
+// 如果没有房间，则直接返回。
+// 输出信息包括房间号、创建时间、创建玩家、状态、总局数和当前局数。
 func (manager *DeskManager) dumpDeskInfo() {
 	c := len(manager.desks)
 	if c < 1 {
@@ -121,6 +132,13 @@ func (manager *DeskManager) dumpDeskInfo() {
 	}
 }
 
+// onPlayerDisconnect 是 DeskManager 的方法，用于处理玩家断开连接的情况。
+// 它首先获取会话的 UID，并通过 playerWithSession 函数获取关联的玩家对象。
+// 如果获取玩家对象的过程中发生错误，则返回该错误。
+// 否则，记录调试日志，并移除会话。
+// 如果玩家没有加入任何房间或者所在房间已被销毁，则调用 defaultManager 的 offline 方法。
+// 否则，调用玩家所在房间的 onPlayerExit 方法，并传入 true 参数表示玩家断开连接。
+// 最后，返回 nil 表示没有错误发生。
 func (manager *DeskManager) onPlayerDisconnect(s *session.Session) error {
 	uid := s.UID()
 	p, err := playerWithSession(s)
@@ -142,13 +160,13 @@ func (manager *DeskManager) onPlayerDisconnect(s *session.Session) error {
 	return nil
 }
 
-// 根据桌号返回牌桌数据
+// desk 方法根据桌号返回桌子对象和是否存在的布尔值。
 func (manager *DeskManager) desk(number room.Number) (*Desk, bool) {
 	d, ok := manager.desks[number]
 	return d, ok
 }
 
-// 设置桌号对应的牌桌数据
+// setDesk 设置桌号对应的牌桌数据
 func (manager *DeskManager) setDesk(number room.Number, desk *Desk) {
 	if desk == nil {
 		delete(manager.desks, number)
@@ -158,7 +176,12 @@ func (manager *DeskManager) setDesk(number room.Number, desk *Desk) {
 	}
 }
 
-// 检查登录玩家关闭应用之前是否正在游戏
+// UnCompleteDesk 检查登录玩家关闭应用之前是否正在游戏。
+// 如果玩家没有加入房间，则返回一个空的 UnCompleteDeskResponse。
+// 否则，检查房间是否已销毁，如果已销毁，则从 DeskManager 中删除该房间，并将玩家的 desk 字段设置为 nil。
+// 如果房间未销毁，则返回包含房间信息的非空 UnCompleteDeskResponse 对象。
+// UnCompleteDeskResponse 结构包含一个布尔值 Exist 和一个 TableInfo 结构。
+// Exist 表示房间是否存在，TableInfo 包含房间的详细信息。
 func (manager *DeskManager) UnCompleteDesk(s *session.Session, _ []byte) error {
 	resp := &protocol.UnCompleteDeskResponse{}
 
@@ -195,7 +218,17 @@ func (manager *DeskManager) UnCompleteDesk(s *session.Session, _ []byte) error {
 	})
 }
 
-// 网络断开后, 重新连接网络
+// ReConnect 处理网络断开后重新连接网络的逻辑。
+// 它接收一个会话 (s) 和一个 ReConnect 结构 (req) 作为参数。
+// 函数首先绑定 UID 到会话。
+// 如果绑定出错，则返回错误。
+// 函数记录重新连接服务器的日志消息，并根据之前的 UID 查找玩家。
+// 如果找不到玩家，则说明该玩家之前的用户信息已被清除，
+// 创建一个新的玩家，并存储到玩家集合中。
+// 如果找到玩家，则替换之前的会话，并解绑之前的会话。
+// 如果之前的会话存在，则将其清除和关闭，并绑定新的会话。
+// 如果玩家当前在某个桌子上，则将其从广播组中移除。
+// 最后，函数返回 nil。
 func (manager *DeskManager) ReConnect(s *session.Session, req *protocol.ReConnect) error {
 	uid := req.Uid
 
@@ -238,7 +271,11 @@ func (manager *DeskManager) ReConnect(s *session.Session, req *protocol.ReConnec
 	return nil
 }
 
-// 网络断开后, 如果ReConnect后发现当前正在房间中, 则重新进入, 桌号是之前的桌号
+// ReJoin 是一个DeskManager的方法，用于在网络断开后重新加入房间。
+// 如果重新连接后发现当前在房间中，则使用之前的桌号重新进入房间。
+// 首先，使用房间号查找房间是否存在，如果不存在或者已解散，则返回错误信息。
+// 如果找到了未解散的房间，记录调试信息，表示玩家重新加入房间。
+// 最后，调用房间的“onPlayerReJoin”方法处理玩家重新加入的逻辑。
 func (manager *DeskManager) ReJoin(s *session.Session, data *protocol.ReJoinDeskRequest) error {
 	d, ok := manager.desk(room.Number(data.DeskNo))
 	if !ok || d.isDestroy() {
@@ -252,7 +289,12 @@ func (manager *DeskManager) ReJoin(s *session.Session, data *protocol.ReJoinDesk
 	return d.onPlayerReJoin(s)
 }
 
-// 应用退出后重新进入房间
+// ReEnter 是 DeskManager 的一个方法，用于在应用退出后重新进入房间。
+// 它接收一个会话对象和一个 ReEnterDeskRequest 对象作为参数。
+// 如果通过会话获取的玩家对象出现错误，则记录错误并返回。
+// 如果玩家没有未完成的房间，但发送了重进请求，则记录警告并返回。
+// 如果玩家试图进入的房间与上次未完成的房间不匹配，则记录警告并返回。
+// 否则，调用房间的 onPlayerReJoin 方法，并返回结果。
 func (manager *DeskManager) ReEnter(s *session.Session, msg *protocol.ReEnterDeskRequest) error {
 	p, err := playerWithSession(s)
 	if err != nil {
