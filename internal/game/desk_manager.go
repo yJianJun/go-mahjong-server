@@ -79,8 +79,8 @@ func NewDeskManager() *DeskManager {
 // 如果会话的 UID 大于零，则调用 DeskManager 的“onPlayerDisconnect”方法，
 // 并记录错误（如果有）。
 // 此外，它还安排一个计时器每 5 分钟运行一次，这会清除被破坏的房间信息，
-// 销毁超过 24 小时不活动的房间，并转储更新的办公桌信息。
-// 最后，将在线会话数和办公桌数异步插入数据库。
+// 销毁超过 24 小时不活动的房间，并转储更新的牌桌信息。
+// 最后，将在线会话数和牌桌数异步插入数据库。
 func (manager *DeskManager) AfterInit() {
 	session.Lifetime.OnClosed(func(s *session.Session) {
 		// Fixed: 玩家WIFI切换到4G网络不断开, 重连时，将UID设置为illegalSessionUid
@@ -543,6 +543,11 @@ func (manager *DeskManager) Ready(s *session.Session, _ []byte) error {
 	return err
 }
 
+// ClientInitCompleted 是 DeskManager 中的一个方法，用于处理客户端初始化完成的请求。
+// 它会打印出收到的消息，并获取会话的 UID 和玩家对象。
+// 然后，它会查找玩家所在的房间，并将会话加入房间的消息广播队列。
+// 如果消息中的 IsReEnter 字段为 false，则将房间状态同步给所有玩家。
+// 最后，它会返回一个错误（如果有）。
 func (manager *DeskManager) ClientInitCompleted(s *session.Session, msg *protocol.ClientInitCompletedRequest) error {
 	logger.Debug(msg)
 	uid := s.UID()
@@ -572,7 +577,22 @@ func (manager *DeskManager) ClientInitCompleted(s *session.Session, msg *protoco
 	return err
 }
 
-// 创建一张桌子
+// CreateDesk 是 DeskManager 的一个方法，用于创建新的牌桌。
+// 它需要一个会话和一个 CreateDeskRequest 作为参数。
+// 它检查与会话关联的玩家是否存在。
+// 如果玩家已经在桌子上，它会响应 reentryDesk 错误。
+// 如果forceUpdate为true并且请求中的版本与当前版本不匹配，则响应
+// createVersionExpire 错误。
+// 它记录桌面选项并验证选项是否有效。
+// 如果选项中的模式为ModeFours，则将Pinghu设置为true。
+// 如果桌子不处于俱乐部模式，它会检查玩家是否有足够的硬币来加入桌子。
+// 如果桌子处于俱乐部模式，它会检查俱乐部的余额是否足够。
+// 它生成一个新的桌子编号并使用选项和俱乐部 ID 创建一个新桌子。
+// 它设置桌子的创建者和createdAt字段并将玩家加入到桌子。
+// 将牌桌信息保存在管理器中。
+// 它使用新牌桌的桌子信息创建一个 CreateDeskResponse。
+// 它记录当前的桌子数量。
+// 最后，它以 CreateDeskResponse 进行响应。
 func (manager *DeskManager) CreateDesk(s *session.Session, data *protocol.CreateDeskRequest) error {
 	p, err := playerWithSession(s)
 	if err != nil {
@@ -641,7 +661,12 @@ func (manager *DeskManager) CreateDesk(s *session.Session, data *protocol.Create
 	return s.Response(resp)
 }
 
-// 新join在session的context中尚未有desk的cache
+// Join 方法用于玩家加入房间。
+// 首先判断是否需要强制更新且请求的版本号是否匹配，若不匹配则返回joinVersionExpire错误。
+// 然后根据房间号来获取对应的房间，若房间不存在则返回deskNotFoundResponse错误。
+// 接着检查房间内玩家数量是否已满，若已满则返回deskPlayerNumEnough错误。
+// 如果房间是俱乐部房间，则判断玩家是否是俱乐部成员，若不是则返回相应的错误信息。
+// 最后调用房间的playerJoin方法将玩家加入房间，并返回房间的信息。
 func (manager *DeskManager) Join(s *session.Session, data *protocol.JoinDeskRequest) error {
 	if forceUpdate && data.Version != version {
 		return s.Response(joinVersionExpire)
@@ -686,7 +711,12 @@ func (manager *DeskManager) Join(s *session.Session, data *protocol.JoinDeskRequ
 	})
 }
 
-// 有玩家请求解散房间
+// Dissolve 处理玩家发送的解散房间请求。
+// 该方法接受一个会话和消息作为参数。
+// 通过会话获取关联的玩家对象，并检查是否存在错误。
+// 如果玩家的房间为空或者已解散，则返回成功的解散房间消息。
+// 否则，调用房间对象的 applyDissolve 方法处理解散请求。
+// 若一切正常则返回 nil。
 func (manager *DeskManager) Dissolve(s *session.Session, msg []byte) error {
 	p, err := playerWithSession(s)
 	if err != nil {
@@ -704,7 +734,13 @@ func (manager *DeskManager) Dissolve(s *session.Session, msg []byte) error {
 	return nil
 }
 
-// 玩家同意或拒绝解散房间请求
+// DissolveStatus 是 DeskManager 的方法，用于处理玩家同意或拒绝解散房间的请求。
+// 如果会话与玩家匹配失败，则返回错误。
+// 如果玩家所在房间为空或已解散，则返回成功消息。
+// 如果玩家拒绝解散请求，则重置解散统计数据，并向房间内其他玩家广播拒绝消息。
+// 如果玩家同意解散请求，则更新解散统计并向房间内其他玩家广播解散状态和剩余时间。
+// 如果所有玩家都同意解散，则结束解散倒计时，并执行解散房间操作。
+// 无论成功还是失败，均返回 nil。
 func (manager *DeskManager) DissolveStatus(s *session.Session, data *protocol.DissolveStatusRequest) error {
 	logger.Debugf("DeskManager.DissolveStatus: %+v", data)
 	p, err := playerWithSession(s)
@@ -756,7 +792,13 @@ func (manager *DeskManager) DissolveStatus(s *session.Session, data *protocol.Di
 	return nil
 }
 
-// 玩家语音消息
+// VoiceMessage 是 DeskManager 的方法，用于处理玩家的语音消息。
+// 它接收一个会话对象和一段字节切片作为参数。
+// 方法内部会通过 playerWithSession 方法获取与会话关联的玩家对象。
+// 如果获取玩家对象失败，则返回错误。
+// 如果玩家所在的牌桌存在并且与牌桌所在的组存在，
+// 则通过组的 Broadcast 方法广播语音消息，并返回结果。
+// 如果没有牌桌或者牌桌所在的组不存在，则返回 nil。
 func (manager *DeskManager) VoiceMessage(s *session.Session, msg []byte) error {
 	p, err := playerWithSession(s)
 	if err != nil {
@@ -771,7 +813,11 @@ func (manager *DeskManager) VoiceMessage(s *session.Session, msg []byte) error {
 	return nil
 }
 
-// 玩家录制完语音
+// RecordingVoice 是 DeskManager 类的一个方法，用于处理玩家录制完语音的操作。
+// 该方法首先通过会话获取玩家对象。
+// 然后创建一个 PlayRecordingVoice 对象 resp，填充 UID 和 FileId 字段。
+// 如果玩家所在的牌桌组存在，则通过它对所有成员广播 "onRecordingVoice" 消息，传递 resp 对象。
+// 最后，如果一切正常，则返回 nil。
 func (manager *DeskManager) RecordingVoice(s *session.Session, msg *protocol.RecordingVoice) error {
 	p, err := playerWithSession(s)
 	if err != nil {
