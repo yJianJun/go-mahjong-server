@@ -13,11 +13,15 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// Loser代表游戏中的失败者。
+// 它有一个 int64 类型的唯一标识符 (uid) 和 int 类型的分数。
 type Loser struct {
 	uid   int64
 	score int
 }
 
+// Player代表玩家。
+// 异步从数据库同步房卡
 type Player struct {
 	uid  int64  // 用户ID
 	head string // 头像地址

@@ -38,7 +38,7 @@ var descriptions = [...]string{
 	HaoHuaLongQiDui: "豪华龙七对",
 }
 
-// 返回番数
+// Multiple 返回基于给定上下文、onHand 和 pongKong 的点数
 func Multiple(ctx *Context, onHand, pongKong Indexes) int {
 	if len(onHand)%3 != 2 {
 		panic("error tile count")
@@ -166,7 +166,7 @@ func Multiple(ctx *Context, onHand, pongKong Indexes) int {
 	return multiple
 }
 
-// 返回听牌最大番数
+// MaxMultiple 返回给定上下文、onHand 和 pongKong 的最大番数和索引
 func MaxMultiple(opts *protocol.DeskOptions, onHand, pongKong Indexes) (multiple int, index int) {
 	tings := TingTiles(onHand)
 	index = IllegalIndex
