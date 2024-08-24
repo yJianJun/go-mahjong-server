@@ -10,7 +10,7 @@ func NewStats(indexes ...Indexes) *Stats {
 	return ts
 }
 
-// 是否是清一色
+// 是否是清一色, 返回是否是清一色, 包括万、筒、条、字牌的情况
 func isQingYiSe(ms *Stats) bool {
 	var flag byte
 
@@ -34,17 +34,23 @@ func isQingYiSe(ms *Stats) bool {
 
 // 7对, 返回是否是七对, 以及包含杠的个数
 func isQiDui(ms *Stats) bool {
+	// 麻将对的计数器
 	pairCount := 0
 
+	// 它迭代字节切片（统计）
 	for _, v := range ms {
+		// 如果某个牌类型的计数为零，则忽略该类型并继续前进
 		if v == 0 {
 			continue
 		}
-		//七对
+
+		// 检查某种牌类型的计数是 2 还是 4（分别可以形成一对或两对）
+		// 如果不是，它立即返回 false ，表示麻将无法形成所需的“七对”
 		if v != 2 && v != 4 {
 			return false
 		}
 
+		// 如果计数确实是 2 或 4，则相应地增加对计数
 		if v == 2 {
 			pairCount++
 		} else if v == 4 {
@@ -52,10 +58,11 @@ func isQiDui(ms *Stats) bool {
 		}
 	}
 
+	// 计算完所有对后，检查是否正好有 7 对。如果是则返回 true，否则返回 false
 	return pairCount == 7
 }
 
-// 大对子
+// 大对子, 返回是否是大对子,包括所有的牌型
 func isDaDui(ms *Stats) bool {
 	counter := 0
 
@@ -108,7 +115,7 @@ func isZhongzhang(ms *Stats) bool {
 	return true
 }
 
-// 是否是夹心五
+// 是否是夹心五, 返回是否是夹心五, 只判断万, 筒, 条的情况, 不包括字牌
 func isJiaxin(ctx *Context, onHand Indexes) bool {
 	index := IndexFromID(ctx.NewDrawingID)
 	if id := ctx.NewOtherDiscardID; id != protocol.OptypeIllegal && id >= 0 {
@@ -166,6 +173,7 @@ func isJiaxin(ctx *Context, onHand Indexes) bool {
 	return CheckWin(tiles)
 }
 
+// min 返回给定字节值中的最小值。
 func min(n byte, ns ...byte) byte {
 	m := n
 	for _, x := range ns {
@@ -176,7 +184,7 @@ func min(n byte, ns ...byte) byte {
 	return m
 }
 
-// 判断是不是幺九
+// isYJ 判断是不是幺九, 返回是否是幺九
 // 1. 排除1和9的刻字，如果有不是1和9的刻子就不可能是幺九
 func isYJ(onHand, pongkong Indexes) bool {
 	pg := NewStats(pongkong)
@@ -254,6 +262,7 @@ func isYJ(onHand, pongkong Indexes) bool {
 	return true
 }
 
+// gangCount 函数计算玩家手牌中有多少个杠
 func gangCount(ms *Stats) int {
 	counter := 0
 	for _, v := range ms {
@@ -264,11 +273,22 @@ func gangCount(ms *Stats) int {
 	return counter
 }
 
+// CanHu 检查玩家是否可以通过丢弃特定牌来获胜。
+// 它将丢弃的牌附加到玩家的手上，然后调用 CheckWin
+// 判断玩家是否有一手获胜牌。
+// 如果 CheckWin 返回 true，则 CanHu 返回 true；否则，返回 false。
 func CanHu(onHand Indexes, discard int) bool {
 	onHand = append(onHand, discard)
 	return CheckWin(onHand)
 }
 
+// IsTing 检查向 onHand 切片添加一个牌是否会导致一手获胜。
+// 它创建 onHand 的克隆并向其中添加每个可能的牌。然后它调用 CheckWin 函数来检查新手牌是否是获胜手牌。
+// 如果至少有一次加法导致获胜，则返回 true。否则，返回 false。
+// 范围：
+// - onHand：当前手牌的牌表示为整数切片。
+// 返回：
+// - bool：如果向手牌添加一张牌会导致获胜，则返回 true，否则返回 false。
 func IsTing(onHand Indexes) bool {
 	clone := make(Indexes, len(onHand)+1)
 	for i := 0; i <= MaxTileIndex; i++ {
@@ -284,20 +304,27 @@ func IsTing(onHand Indexes) bool {
 	return false
 }
 
-// 传入一副牌，返回所有的听牌
+// 返回所有的听牌
 func TingTiles(onHand Indexes) Indexes {
+	// 为新牌腾出空间
 	clone := make(Indexes, len(onHand)+1)
+	// 存储听牌的索引
 	rts := make(Indexes, 0)
+
+	// 遍历所有可能的牌索引
 	for i := 0; i <= MaxTileIndex; i++ {
+		// 跳过 10 秒，因为它们无效
 		if i%10 == 0 {
 			continue
 		}
+		// 使用当前索引创建一手新牌作为额外牌
 		copy(clone, onHand)
 		clone[len(onHand)] = i
+		// 如果新手牌是获胜手牌，则附加当前索引
 		if CheckWin(clone) {
 			rts = append(rts, i)
 		}
 	}
-
+	// 返回所有听牌
 	return rts
 }

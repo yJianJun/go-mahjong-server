@@ -387,7 +387,13 @@ func (manager *DeskManager) Resume(s *session.Session, _ []byte) error {
 	return d.group.Broadcast("onDissolveStatus", dissolveStatus)
 }
 
-// 理牌结束
+// QiPaiFinished 是 DeskManager 的方法，用于处理理牌结束操作。
+// 它接收一个会话对象和一段消息作为参数。
+// 首先，通过会话对象获取玩家对象，如果获取失败则返回错误。
+// 接下来，获取当前玩家所在的房间。
+// 如果玩家不在房间内，则记录调试日志并返回nil。
+// 最后，调用房间对象的qiPaiFinished方法，并传入玩家的UID作为参数。
+// 如果发生错误，将会被返回。
 func (manager *DeskManager) QiPaiFinished(s *session.Session, msg []byte) error {
 	p, err := playerWithSession(s)
 	if err != nil {
@@ -403,7 +409,15 @@ func (manager *DeskManager) QiPaiFinished(s *session.Session, msg []byte) error 
 	return d.qiPaiFinished(s.UID())
 }
 
-// 定缺
+// DingQue 是 DeskManager 的方法，用于玩家定缺麻将。
+// 首先，根据会话获取对应的玩家对象。
+// 值得注意的是，如果会话中不存在玩家对象，则会返回错误。
+// 然后，根据传入的定缺参数进行验证，如果参数小于1，则返回相应的错误。
+// 接着，获取玩家所在的房间对象。
+// 如果玩家不在任何房间中，则打印日志并直接返回。
+// 如果房间的模式不是4人模式，则返回模式不支持定缺的错误。
+// 最后，调用房间的 dingQue 方法，将定缺信息应用于玩家。
+// 函数最终返回 nil，表示没有错误发生。
 func (manager *DeskManager) DingQue(s *session.Session, msg *protocol.DingQue) error {
 	p, err := playerWithSession(s)
 	if err != nil {
@@ -487,6 +501,11 @@ func (manager *DeskManager) Exit(s *session.Session, msg *protocol.ExitRequest) 
 	return nil
 }
 
+// OpChoose 方法处理玩家选择操作。
+// 它根据会话获取相应的玩家数据，如果获取失败则返回错误。
+// 该方法将收到的 OpChooseRequest 消息记录到玩家的日志中，
+// 并将操作消息通过玩家的操作通道发送出去。
+// 返回 nil 表示处理成功。
 func (manager *DeskManager) OpChoose(s *session.Session, msg *protocol.OpChooseRequest) error {
 	p, err := playerWithSession(s)
 	if err != nil {
@@ -501,6 +520,14 @@ func (manager *DeskManager) OpChoose(s *session.Session, msg *protocol.OpChooseR
 	return nil
 }
 
+// Ready 是 DeskManager 的 Ready 方法。
+// 该方法用于准备玩家，将玩家与会话关联，并执行一系列操作。
+// 首先，使用 playerWithSession 方法将会话与玩家进行关联。
+// 如果获取玩家失败，则返回错误。
+// 接着，获取玩家对应的桌子，并进行准备操作。
+// 然后，同步桌子状态。
+// 在广播消息之后必须调用 checkStart 方法。
+// 最后，返回可能出现的错误。
 func (manager *DeskManager) Ready(s *session.Session, _ []byte) error {
 	p, err := playerWithSession(s)
 	if err != nil {
